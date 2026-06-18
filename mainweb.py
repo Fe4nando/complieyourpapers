@@ -408,20 +408,16 @@ def create_public_cover_pdf(level, subject_name, subject_code, paper_type_short,
 def _bestexamhelp_url(subject_code, year_suffix, filename):
     if subject_code in ALEVEL_SUBJECTS.values():
         level = "cambridge-international-a-level"
-
         subject_name = next(
             k for k, v in ALEVEL_SUBJECTS.items()
             if v == subject_code
         )
-
     elif subject_code in IGCSE_SUBJECTS.values():
         level = "cambridge-igcse"
-
         subject_name = next(
             k for k, v in IGCSE_SUBJECTS.items()
             if v == subject_code
         )
-
     else:
         return None
 
@@ -435,7 +431,6 @@ def _bestexamhelp_url(subject_code, year_suffix, filename):
         .replace(" ", "-")
         .strip("-")
     )
-
     return (
         f"https://bestexamhelp.com/exam/"
         f"{level}/"
@@ -443,6 +438,32 @@ def _bestexamhelp_url(subject_code, year_suffix, filename):
         f"20{int(year_suffix):02d}/"
         f"{filename}"
     )
+
+
+def _papacambridge_url(filename):
+    return (
+        "https://pastpapers.papacambridge.com/download_file.php"
+        "?files=https://pastpapers.papacambridge.com/directories/"
+        f"CAIE/CAIE-pastpapers/upload/{filename}"
+    )
+
+
+def try_download(url):
+    try:
+        response = requests.get(
+            url,
+            headers=HEADERS,
+            timeout=15,
+            allow_redirects=True,
+        )
+        if response.status_code != 200:
+            return None
+        content = response.content
+        if b"%PDF" not in content[:1024]:
+            return None
+        return BytesIO(content)
+    except Exception:
+        return None
 
 
 def download_paper(args):
@@ -456,49 +477,24 @@ def download_paper(args):
             f"{paper_type_short}_{paper_no}.pdf"
         )
 
-    url = _bestexamhelp_url(
-        subject_code,
-        year_suffix,
-        filename,
-    )
-
+    url = _bestexamhelp_url(subject_code, year_suffix, filename)
     if not url:
         print(f"Could not generate URL for {subject_code}")
         return paper_no, filename, None
 
-    try:
-        response = requests.get(
-            url,
-            headers=HEADERS,
-            timeout=15,
-            allow_redirects=True,
-        )
+    pdf = try_download(url)
+    if pdf:
+        return paper_no, filename, pdf
 
-        # Debug output
-        print("=" * 80)
-        print("URL:", url)
-        print("STATUS:", response.status_code)
-        print("FINAL URL:", response.url)
-        print("CONTENT TYPE:", response.headers.get("Content-Type"))
-        print("=" * 80)
+    # Fallback to PapaCambridge
+    print(f"bestexamhelp failed, trying PapaCambridge: {filename}")
+    fallback_url = _papacambridge_url(filename)
+    pdf = try_download(fallback_url)
+    if pdf:
+        return paper_no, filename, pdf
 
-        if response.status_code != 200:
-            return paper_no, filename, None
-
-        content = response.content
-
-        # Verify it's actually a PDF
-        if b"%PDF" in content[:1024]:
-            return paper_no, filename, BytesIO(content)
-
-        print(f"Not a PDF: {url}")
-        return paper_no, filename, None
-
-    except Exception as e:
-        print(f"Download failed: {url}")
-        print(e)
-        return paper_no, filename, None
-
+    print(f"All sources failed for: {filename}")
+    return paper_no, filename, None
 def render_home_page():
     logo_col, _ = st.columns([1, 5])
     with logo_col:
